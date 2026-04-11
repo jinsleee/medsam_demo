@@ -1,0 +1,909 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MedSAM vs Med-SA - 의료 이미지 세그멘테이션</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e0e0e0; min-height: 100vh; }
+
+    header {
+      background: linear-gradient(135deg, #1a1f2e, #2d3561);
+      padding: 20px 32px;
+      border-bottom: 1px solid #2a3050;
+      display: flex; align-items: center; gap: 16px;
+    }
+    header h1 { font-size: 22px; font-weight: 700; color: #fff; }
+    header span { font-size: 13px; color: #7b8cba; }
+    .badge { background: #4caf50; color: #fff; font-size: 11px; padding: 2px 8px; border-radius: 10px; }
+    .badge.cpu { background: #ff9800; }
+
+    .tab-bar {
+      display: flex; gap: 4px; margin-left: auto;
+    }
+    .tab-btn {
+      background: rgba(255,255,255,0.08); border: 1px solid #2a3050;
+      color: #aab; font-size: 12px; font-weight: 600;
+      padding: 6px 16px; border-radius: 6px; cursor: pointer; transition: all .2s;
+      width: auto;
+    }
+    .tab-btn.active { background: #3d5afe; color: #fff; border-color: #3d5afe; }
+    .tab-btn:hover:not(.active) { background: rgba(255,255,255,0.14); }
+
+    .container { display: flex; height: calc(100vh - 65px); }
+
+    /* Sidebar */
+    .sidebar {
+      width: 300px; min-width: 260px;
+      background: #161b2a;
+      border-right: 1px solid #2a3050;
+      padding: 20px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 20px;
+    }
+    .section-title { font-size: 11px; font-weight: 600; color: #7b8cba; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+
+    .status-card {
+      background: #1e2538;
+      border-radius: 10px;
+      padding: 14px;
+      border: 1px solid #2a3050;
+    }
+    .status-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; font-size: 13px; }
+    .status-row:last-child { margin-bottom: 0; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+    .dot.green { background: #4caf50; box-shadow: 0 0 6px #4caf50; }
+    .dot.red { background: #f44336; }
+    .dot.yellow { background: #ffb300; }
+
+    button {
+      width: 100%; padding: 10px; border-radius: 8px; border: none; cursor: pointer;
+      font-size: 13px; font-weight: 600; transition: all .2s;
+    }
+    .btn-primary { background: #3d5afe; color: #fff; }
+    .btn-primary:hover { background: #536dfe; }
+    .btn-primary:disabled { background: #2a3050; color: #5a6080; cursor: not-allowed; }
+    .btn-success { background: #00897b; color: #fff; }
+    .btn-success:hover { background: #00acc1; }
+
+    .sample-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .sample-thumb {
+      border-radius: 8px; overflow: hidden; cursor: pointer;
+      border: 2px solid transparent; transition: border .2s;
+      background: #1e2538; aspect-ratio: 1;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .sample-thumb:hover, .sample-thumb.active { border-color: #3d5afe; }
+    .sample-thumb img { width: 100%; height: 100%; object-fit: cover; }
+
+    .upload-area {
+      border: 2px dashed #2a3050; border-radius: 10px; padding: 20px;
+      text-align: center; cursor: pointer; transition: border .2s; font-size: 13px; color: #7b8cba;
+    }
+    .upload-area:hover { border-color: #3d5afe; color: #aab; }
+    input[type=file] { display: none; }
+
+    .result-card {
+      background: #1e2538; border-radius: 10px; padding: 14px;
+      border: 1px solid #2a3050; display: none;
+    }
+    .result-card.visible { display: block; }
+    .metric { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 8px; }
+    .metric-val { font-weight: 700; color: #64b5f6; }
+
+    /* Main canvas area */
+    .main {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 24px; gap: 16px; overflow: hidden;
+    }
+
+    .canvas-wrapper {
+      position: relative; display: inline-block;
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      cursor: crosshair;
+    }
+    #mainCanvas {
+      display: block; max-width: 100%; max-height: calc(100vh - 200px);
+    }
+    #overlayCanvas {
+      position: absolute; top: 0; left: 0;
+      pointer-events: none;
+    }
+
+    .hint {
+      font-size: 13px; color: #7b8cba; text-align: center; line-height: 1.6;
+    }
+    .hint strong { color: #aab4d0; }
+
+    .loading-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.7);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 999; display: none;
+    }
+    .loading-overlay.visible { display: flex; }
+    .spinner {
+      width: 48px; height: 48px; border: 4px solid #2a3050;
+      border-top-color: #3d5afe; border-radius: 50%;
+      animation: spin 1s linear infinite; margin-bottom: 16px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #1e2538; border: 1px solid #3d5afe;
+      border-radius: 10px; padding: 12px 20px; font-size: 13px;
+      transform: translateY(80px); transition: transform .3s; z-index: 1000;
+    }
+    .toast.show { transform: translateY(0); }
+    .toast.error { border-color: #f44336; }
+
+    /* Paper panel */
+    .paper-panel {
+      display: none;
+      overflow-y: auto;
+      padding: 28px 32px;
+      background: #0f1117;
+      height: calc(100vh - 65px);
+      width: 100%;
+    }
+    .paper-panel.active { display: block; }
+    .demo-panel { display: flex; flex: 1; overflow: hidden; height: calc(100vh - 65px); }
+    .demo-panel.hidden { display: none; }
+
+    .paper-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+    .paper-card {
+      background: #161b2a; border: 1px solid #2a3050;
+      border-radius: 12px; padding: 20px;
+    }
+    .paper-card.highlight { border-color: #3d5afe; }
+    .paper-card h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; color: #fff; }
+    .paper-card .tag {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 10px; margin-bottom: 10px;
+    }
+    .tag.current { background: #ff9800; color: #fff; }
+    .tag.paper { background: #3d5afe; color: #fff; }
+    .tag.better { background: #4caf50; color: #fff; }
+
+    .compare-row {
+      display: flex; justify-content: space-between;
+      font-size: 12px; padding: 6px 0; border-bottom: 1px solid #1e2538;
+    }
+    .compare-row:last-child { border-bottom: none; }
+    .compare-row .label { color: #7b8cba; }
+    .compare-row .val { font-weight: 600; color: #e0e0e0; }
+    .compare-row .val.blue { color: #64b5f6; }
+    .compare-row .val.green { color: #4caf50; }
+
+    .arch-box {
+      background: #1e2538; border-radius: 10px; padding: 16px;
+      margin-bottom: 16px; border-left: 3px solid #3d5afe;
+    }
+    .arch-box h4 { font-size: 13px; font-weight: 700; color: #64b5f6; margin-bottom: 8px; }
+    .arch-box p { font-size: 12px; color: #aab4d0; line-height: 1.7; }
+    .arch-box code {
+      background: #0f1117; color: #80cbc4; font-size: 11px;
+      padding: 2px 6px; border-radius: 4px;
+    }
+
+    .flow {
+      display: flex; align-items: center; gap: 6px;
+      flex-wrap: wrap; margin: 10px 0;
+    }
+    .flow-node {
+      background: #1e2538; border: 1px solid #2a3050;
+      border-radius: 8px; padding: 6px 12px;
+      font-size: 11px; font-weight: 600; color: #e0e0e0;
+    }
+    .flow-node.blue { border-color: #3d5afe; color: #82b1ff; }
+    .flow-node.green { border-color: #4caf50; color: #80cbc4; }
+    .flow-arrow { color: #3d5afe; font-size: 16px; }
+
+    .perf-bar-wrap { margin-top: 6px; }
+    .perf-label { display: flex; justify-content: space-between; font-size: 11px; color: #aab; margin-bottom: 3px; }
+    .perf-bar { height: 8px; border-radius: 4px; background: #1e2538; overflow: hidden; }
+    .perf-fill { height: 100%; border-radius: 4px; transition: width 1s ease; }
+
+    .paper-section-title {
+      font-size: 13px; font-weight: 700; color: #7b8cba;
+      text-transform: uppercase; letter-spacing: 1px;
+      margin: 24px 0 12px;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🏥 MedSAM</h1>
+    <span>Segment Anything for Medical Images</span>
+  </div>
+  <span id="deviceBadge" class="badge cpu">CPU</span>
+  <div class="tab-bar">
+    <button class="tab-btn active" onclick="switchTab('demo')">세그멘테이션 데모</button>
+    <button class="tab-btn" onclick="switchTab('paper')">논문 비교 (Med-SA vs MedSAM)</button>
+  </div>
+</header>
+
+<div class="container" style="flex-direction:column;height:calc(100vh - 65px);overflow:hidden">
+
+<!-- Demo + Sidebar wrapper -->
+<div class="demo-panel" id="demoPanel">
+  <!-- Sidebar -->
+  <div class="sidebar">
+
+    <!-- 모델 상태 -->
+    <div>
+      <div class="section-title">모델 상태</div>
+      <div class="status-card">
+        <div class="status-row">
+          <span><span class="dot" id="dotCheckpoint"></span>체크포인트</span>
+          <span id="txtCheckpoint" style="font-size:12px">확인 중...</span>
+        </div>
+        <div class="status-row">
+          <span><span class="dot" id="dotLoaded"></span>모델 로드</span>
+          <span id="txtLoaded" style="font-size:12px">-</span>
+        </div>
+      </div>
+      <button class="btn-primary" id="btnLoad" style="margin-top:10px" onclick="loadModel()">모델 로드하기</button>
+    </div>
+
+    <!-- 샘플 이미지 -->
+    <div>
+      <div class="section-title">샘플 이미지</div>
+      <div class="sample-grid" id="sampleGrid">
+        <div style="color:#7b8cba;font-size:12px">로딩 중...</div>
+      </div>
+    </div>
+
+    <!-- 직접 업로드 -->
+    <div>
+      <div class="section-title">이미지 업로드</div>
+      <label class="upload-area" for="fileInput">
+        📂 클릭하여 이미지 선택<br>
+        <small>PNG, JPG, DICOM 지원</small>
+      </label>
+      <input type="file" id="fileInput" accept="image/*" onchange="handleUpload(event)">
+    </div>
+
+    <!-- 결과 -->
+    <div>
+      <div class="section-title">세그멘테이션 결과</div>
+      <div class="result-card" id="resultCard">
+        <div class="metric"><span>신뢰도 점수</span><span class="metric-val" id="resScore">-</span></div>
+        <div class="metric"><span>마스크 면적</span><span class="metric-val" id="resArea">-</span></div>
+        <div class="metric"><span>전체 대비</span><span class="metric-val" id="resPct">-</span></div>
+      </div>
+      <div id="noResult" style="font-size:12px;color:#7b8cba">박스를 그리면 결과가 표시됩니다.</div>
+    </div>
+
+  </div>
+
+  <!-- Main -->
+  <div class="main">
+    <div class="canvas-wrapper" id="canvasWrapper"
+         onmousedown="startBox(event)"
+         onmousemove="drawBox(event)"
+         onmouseup="endBox(event)">
+      <canvas id="mainCanvas"></canvas>
+      <canvas id="overlayCanvas"></canvas>
+    </div>
+    <p class="hint" id="hint">
+      좌측에서 <strong>샘플 이미지</strong>를 선택하거나 <strong>이미지를 업로드</strong>하세요.<br>
+      이미지 위에서 <strong>마우스 드래그</strong>로 관심 영역 박스를 그리면 세그멘테이션이 실행됩니다.
+    </p>
+  </div>
+</div>
+
+</div><!-- /demo-panel -->
+
+<!-- Paper Panel : 의료 이미지 세그멘테이션 비교 -->
+<div class="paper-panel" id="paperPanel">
+
+  <!-- 상단: 샘플 선택 -->
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+    <div>
+      <div style="font-size:18px;font-weight:700;color:#fff">의료 이미지 세그멘테이션 비교</div>
+      <div style="font-size:12px;color:#7b8cba;margin-top:4px">샘플 이미지를 선택 → 박스로 ROI 지정 → MedSAM 결과 확인 · 논문(Med-SA)과 차이 비교</div>
+    </div>
+    <div style="display:flex;gap:8px" id="medSampleBtns"></div>
+  </div>
+
+  <!-- 중단: 3단 비교 뷰 -->
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;min-height:420px">
+
+    <!-- 1) 원본 이미지 + ROI 박스 -->
+    <div class="paper-card" style="padding:14px;display:flex;flex-direction:column">
+      <div style="font-size:11px;font-weight:700;color:#7b8cba;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">
+        원본 의료 이미지
+      </div>
+      <div style="position:relative;flex:1;background:#0f1117;border-radius:8px;overflow:hidden;cursor:crosshair;min-height:300px"
+           id="cmpWrapper"
+           onmousedown="cmpStartBox(event)"
+           onmousemove="cmpDrawBox(event)"
+           onmouseup="cmpEndBox(event)">
+        <canvas id="cmpOrigCanvas" style="display:block;width:100%;height:100%;object-fit:contain"></canvas>
+        <canvas id="cmpBoxCanvas"  style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none"></canvas>
+        <div id="cmpPlaceholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a4060;font-size:13px;flex-direction:column;gap:8px">
+          <span style="font-size:32px">🏥</span>
+          위에서 이미지를 선택하세요
+        </div>
+      </div>
+      <div style="font-size:11px;color:#7b8cba;margin-top:8px;text-align:center" id="cmpHint">샘플을 선택한 뒤 관심 영역을 드래그하세요</div>
+    </div>
+
+    <!-- 2) MedSAM 결과 -->
+    <div class="paper-card" style="padding:14px;display:flex;flex-direction:column">
+      <div style="font-size:11px;font-weight:700;color:#7b8cba;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">
+        MedSAM 결과 <span style="color:#ff9800">(현재 구현)</span>
+      </div>
+      <div style="flex:1;background:#0f1117;border-radius:8px;overflow:hidden;min-height:300px;position:relative">
+        <img id="cmpResultImg" style="width:100%;height:100%;object-fit:contain;display:none" alt="MedSAM result">
+        <div id="cmpResultPlaceholder" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#3a4060;font-size:13px;flex-direction:column;gap:8px">
+          <span style="font-size:32px">⬅</span>
+          박스를 그리면 결과 표시
+        </div>
+        <div id="cmpRunning" style="position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.7);flex-direction:column;gap:12px">
+          <div class="spinner"></div>
+          <span style="font-size:12px;color:#aab">MedSAM 처리 중...</span>
+        </div>
+      </div>
+      <!-- 결과 수치 -->
+      <div id="cmpMetrics" style="display:none;margin-top:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+          <div style="background:#1e2538;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:#7b8cba">신뢰도</div>
+            <div style="font-size:16px;font-weight:700;color:#4caf50" id="cmpScore">-</div>
+          </div>
+          <div style="background:#1e2538;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:#7b8cba">면적(px)</div>
+            <div style="font-size:14px;font-weight:700;color:#64b5f6" id="cmpArea">-</div>
+          </div>
+          <div style="background:#1e2538;border-radius:8px;padding:10px;text-align:center">
+            <div style="font-size:10px;color:#7b8cba">전체대비</div>
+            <div style="font-size:16px;font-weight:700;color:#64b5f6" id="cmpPct">-</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3) 논문(Med-SA) 개선점 -->
+    <div class="paper-card highlight" style="padding:14px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:11px;font-weight:700;color:#7b8cba;text-transform:uppercase;letter-spacing:1px">
+        Med-SA 논문 기준 <span style="color:#3d5afe">(개선점)</span>
+      </div>
+
+      <div id="cmpPaperContent">
+        <div style="font-size:12px;color:#aab4d0;line-height:1.8">
+          이미지를 선택하면 해당 이미지 유형에 대한<br>논문(Med-SA) 개선 내용을 보여줍니다.
+        </div>
+      </div>
+
+      <!-- 성능 바 (항상 표시) -->
+      <div style="margin-top:auto">
+        <div style="font-size:11px;font-weight:700;color:#7b8cba;margin-bottom:10px;text-transform:uppercase;letter-spacing:1px">BTCV 성능 비교</div>
+        <div class="perf-bar-wrap">
+          <div class="perf-label"><span style="font-size:11px">Med-SA (논문)</span><span style="color:#4caf50;font-size:11px">DSC 최고</span></div>
+          <div class="perf-bar"><div class="perf-fill" style="width:92%;background:linear-gradient(90deg,#3d5afe,#4caf50)"></div></div>
+        </div>
+        <div class="perf-bar-wrap" style="margin-top:8px">
+          <div class="perf-label"><span style="font-size:11px">MedSAM (현재)</span><span style="color:#64b5f6;font-size:11px">-9.4%</span></div>
+          <div class="perf-bar"><div class="perf-fill" style="width:76%;background:#3d5afe"></div></div>
+        </div>
+        <div class="perf-bar-wrap" style="margin-top:8px">
+          <div class="perf-label"><span style="font-size:11px">SAM 원본</span><span style="color:#f44336;font-size:11px">-34.8%</span></div>
+          <div class="perf-bar"><div class="perf-fill" style="width:44%;background:#f44336"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 하단: 논문 모달리티 -->
+  <div style="margin-top:20px">
+    <div style="font-size:11px;font-weight:700;color:#7b8cba;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px">논문이 검증한 17가지 의료 Task</div>
+    <div style="display:flex;flex-wrap:wrap;gap:8px">
+      <span class="flow-node blue">CT 다장기</span><span class="flow-node blue">CT 폐결절</span>
+      <span class="flow-node blue">CT 간종양</span><span class="flow-node">MRI 뇌</span>
+      <span class="flow-node">MRI 전립선</span><span class="flow-node">MRI 심장</span>
+      <span class="flow-node green">초음파 갑상선</span><span class="flow-node green">초음파 유방</span>
+      <span class="flow-node">안저 시신경</span><span class="flow-node">안저 혈관</span>
+      <span class="flow-node">피부경 병변</span><span class="flow-node blue">내시경 폴립</span>
+      <span class="flow-node">X-ray 폐</span><span class="flow-node">X-ray 골절</span>
+      <span class="flow-node green">병리 슬라이드</span><span class="flow-node">MRI 척추</span>
+      <span class="flow-node">CT 신장</span>
+    </div>
+  </div>
+
+</div><!-- /paper-panel -->
+
+<!-- Loading -->
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="spinner"></div>
+  <div id="loadingMsg" style="color:#aab;font-size:15px">세그멘테이션 실행 중...</div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  const mainCanvas = document.getElementById('mainCanvas');
+  const overlayCanvas = document.getElementById('overlayCanvas');
+  const ctx = mainCanvas.getContext('2d');
+  const octx = overlayCanvas.getContext('2d');
+
+  let currentImage = null;  // HTMLImageElement
+  let currentImageB64 = null;
+  let isDrawing = false;
+  let boxStart = null;
+  let boxEnd = null;
+  let modelLoaded = false;
+
+  // ── Status check ──
+  async function checkStatus() {
+    const r = await fetch('/status');
+    const d = await r.json();
+
+    const dotCP = document.getElementById('dotCheckpoint');
+    const dotL = document.getElementById('dotLoaded');
+    const txtCP = document.getElementById('txtCheckpoint');
+    const txtL = document.getElementById('txtLoaded');
+    const badge = document.getElementById('deviceBadge');
+
+    if (d.checkpoint_exists) {
+      dotCP.className = 'dot green';
+      txtCP.textContent = `${d.checkpoint_size_mb} MB`;
+    } else {
+      dotCP.className = 'dot red';
+      txtCP.textContent = '없음';
+    }
+
+    if (d.model_loaded) {
+      dotL.className = 'dot green';
+      txtL.textContent = '준비됨';
+      document.getElementById('btnLoad').disabled = true;
+      document.getElementById('btnLoad').textContent = '로드 완료 ✓';
+      modelLoaded = true;
+    } else {
+      dotL.className = 'dot yellow';
+      txtL.textContent = '미로드';
+    }
+
+    badge.textContent = d.device.toUpperCase();
+    badge.className = d.device === 'cuda' ? 'badge' : 'badge cpu';
+  }
+
+  // ── Load model ──
+  async function loadModel() {
+    const btn = document.getElementById('btnLoad');
+    btn.disabled = true;
+    btn.textContent = '로딩 중... (30초~1분 소요)';
+    showToast('모델을 로드합니다. 잠시 기다려주세요...', false);
+    try {
+      const r = await fetch('/load_model', { method: 'POST' });
+      const d = await r.json();
+      if (d.success) {
+        modelLoaded = true;
+        showToast('모델 로드 완료!', false);
+        checkStatus();
+      } else {
+        btn.disabled = false;
+        btn.textContent = '모델 로드하기';
+        showToast('모델 로드 실패. 체크포인트를 확인하세요.', true);
+      }
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = '모델 로드하기';
+      showToast('오류: ' + e.message, true);
+    }
+  }
+
+  // ── Sample images ──
+  async function loadSamples() {
+    const r = await fetch('/samples');
+    const d = await r.json();
+    const grid = document.getElementById('sampleGrid');
+    if (!d.samples.length) {
+      grid.innerHTML = '<div style="color:#7b8cba;font-size:12px">샘플 없음</div>';
+      return;
+    }
+    grid.innerHTML = '';
+    d.samples.forEach(fname => {
+      const div = document.createElement('div');
+      div.className = 'sample-thumb';
+      div.title = fname;
+      const img = document.createElement('img');
+      img.src = `/sample_image/${fname}`;
+      img.alt = fname;
+      div.appendChild(img);
+      div.onclick = () => {
+        document.querySelectorAll('.sample-thumb').forEach(el => el.classList.remove('active'));
+        div.classList.add('active');
+        loadImageToCanvas(img.src);
+      };
+      grid.appendChild(div);
+    });
+  }
+
+  // ── File upload ──
+  function handleUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => loadImageToCanvas(ev.target.result);
+    reader.readAsDataURL(file);
+  }
+
+  // ── Load image to canvas ──
+  function loadImageToCanvas(src) {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      currentImage = img;
+
+      // Fit to screen
+      const maxW = document.querySelector('.main').clientWidth - 48;
+      const maxH = window.innerHeight - 200;
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const scale = Math.min(maxW / w, maxH / h, 1);
+      w = Math.floor(w * scale);
+      h = Math.floor(h * scale);
+
+      mainCanvas.width = w;
+      mainCanvas.height = h;
+      overlayCanvas.width = w;
+      overlayCanvas.height = h;
+      ctx.drawImage(img, 0, 0, w, h);
+
+      // Store base64 at original size for inference
+      const tmpCanvas = document.createElement('canvas');
+      tmpCanvas.width = img.naturalWidth;
+      tmpCanvas.height = img.naturalHeight;
+      tmpCanvas.getContext('2d').drawImage(img, 0, 0);
+      currentImageB64 = tmpCanvas.toDataURL('image/png').split(',')[1];
+
+      document.getElementById('hint').textContent = '드래그하여 관심 영역(ROI) 박스를 그리세요.';
+      hideResult();
+    };
+    img.src = src;
+  }
+
+  // ── Box drawing ──
+  function canvasPos(e) {
+    const rect = mainCanvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (mainCanvas.width / rect.width),
+      y: (e.clientY - rect.top) * (mainCanvas.height / rect.height)
+    };
+  }
+
+  function startBox(e) {
+    if (!currentImage) return;
+    isDrawing = true;
+    boxStart = canvasPos(e);
+    boxEnd = null;
+    octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+  }
+
+  function drawBox(e) {
+    if (!isDrawing) return;
+    boxEnd = canvasPos(e);
+    octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+    const x = Math.min(boxStart.x, boxEnd.x);
+    const y = Math.min(boxStart.y, boxEnd.y);
+    const w = Math.abs(boxEnd.x - boxStart.x);
+    const h = Math.abs(boxEnd.y - boxStart.y);
+
+    octx.strokeStyle = '#ffeb3b';
+    octx.lineWidth = 2;
+    octx.setLineDash([6, 3]);
+    octx.strokeRect(x, y, w, h);
+    octx.fillStyle = 'rgba(255, 235, 59, 0.08)';
+    octx.fillRect(x, y, w, h);
+  }
+
+  function endBox(e) {
+    if (!isDrawing) return;
+    isDrawing = false;
+    boxEnd = canvasPos(e);
+
+    if (!boxStart || !boxEnd) return;
+    const dx = Math.abs(boxEnd.x - boxStart.x);
+    const dy = Math.abs(boxEnd.y - boxStart.y);
+    if (dx < 10 || dy < 10) return;
+
+    // Scale to original image coords
+    const scaleX = currentImage.naturalWidth / mainCanvas.width;
+    const scaleY = currentImage.naturalHeight / mainCanvas.height;
+    const box = [
+      Math.round(Math.min(boxStart.x, boxEnd.x) * scaleX),
+      Math.round(Math.min(boxStart.y, boxEnd.y) * scaleY),
+      Math.round(Math.max(boxStart.x, boxEnd.x) * scaleX),
+      Math.round(Math.max(boxStart.y, boxEnd.y) * scaleY),
+    ];
+
+    runSegmentation(box);
+  }
+
+  // ── Segmentation ──
+  async function runSegmentation(box) {
+    if (!modelLoaded) {
+      showToast('먼저 모델을 로드해주세요!', true);
+      return;
+    }
+
+    showLoading('세그멘테이션 실행 중... (CPU: 30초~1분 소요)');
+    try {
+      const r = await fetch('/segment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: currentImageB64, box })
+      });
+      const d = await r.json();
+      hideLoading();
+
+      if (d.error) {
+        showToast('오류: ' + d.error, true);
+        return;
+      }
+
+      // Draw overlay
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, mainCanvas.width, mainCanvas.height);
+        octx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+      };
+      img.src = 'data:image/png;base64,' + d.overlay;
+
+      showResult(d);
+      showToast(`세그멘테이션 완료! 신뢰도: ${(d.score * 100).toFixed(1)}%`, false);
+
+    } catch (err) {
+      hideLoading();
+      showToast('요청 오류: ' + err.message, true);
+    }
+  }
+
+  // ── UI helpers ──
+  function showResult(d) {
+    document.getElementById('resultCard').classList.add('visible');
+    document.getElementById('noResult').style.display = 'none';
+    document.getElementById('resScore').textContent = (d.score * 100).toFixed(1) + '%';
+    document.getElementById('resArea').textContent = d.area_px.toLocaleString() + ' px';
+    document.getElementById('resPct').textContent = d.area_pct + '%';
+  }
+  function hideResult() {
+    document.getElementById('resultCard').classList.remove('visible');
+    document.getElementById('noResult').style.display = 'block';
+  }
+  function showLoading(msg) {
+    document.getElementById('loadingMsg').textContent = msg;
+    document.getElementById('loadingOverlay').classList.add('visible');
+  }
+  function hideLoading() {
+    document.getElementById('loadingOverlay').classList.remove('visible');
+  }
+  function showToast(msg, isError) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = 'toast show' + (isError ? ' error' : '');
+    setTimeout(() => t.className = 'toast', 3500);
+  }
+
+  // ── Paper panel: image comparison ──
+  const PAPER_INFO = {
+    'xray_chest.png': {
+      title: '흉부 X-ray — 폐/심장 세그멘테이션',
+      limit: 'SAM은 X-ray의 낮은 대비(low contrast)로 인해 폐 경계를 흐릿하게 잡습니다.',
+      medsa: 'Med-SA는 X-ray 특화 Adapter로 폐 경계·심장 실루엣을 명확히 분리합니다.',
+      note: '논문 Task: 흉부 X-ray 폐 분절 (DSC 개선 +8.2%)',
+      color: '#3d5afe'
+    },
+    'ct_brain.png': {
+      title: '뇌 CT — 뇌실/종양 세그멘테이션',
+      limit: 'CT의 회백질·백질 경계가 유사한 밀도를 가져 SAM이 구분에 어려움을 겪습니다.',
+      medsa: 'Med-SA의 SD-Trans로 3D 슬라이스 간 맥락을 활용, 뇌실 경계를 정밀하게 추출합니다.',
+      note: '논문 Task: 뇌 MRI 분절 (DSC 개선 +11.3%)',
+      color: '#7c4dff'
+    },
+    'ct_abdomen.png': {
+      title: '복부 CT — 다장기/종양 세그멘테이션',
+      limit: '간·신장·비장 등 인접 장기가 유사 밀도여서 SAM이 경계를 혼동합니다.',
+      medsa: 'Med-SA는 BTCV 다장기 벤치마크에서 MedSAM 대비 9.4% 향상, Swin-UNetr 대비 2.9% 우수합니다.',
+      note: '논문 핵심 Task: BTCV 다장기 (Med-SA 최고 성능)',
+      color: '#00acc1'
+    },
+    'dermoscopy.png': {
+      title: '피부경 — 병변 세그멘테이션',
+      limit: '피부 병변의 불규칙한 경계와 색상 그라데이션으로 SAM이 과대/과소 세그멘테이션합니다.',
+      medsa: 'Med-SA의 HyP-Adpt로 박스 프롬프트가 Adapter 가중치를 생성, 병변 경계를 세밀하게 추출합니다.',
+      note: '논문 Task: 피부경 병변 분절 (DSC 개선 +6.7%)',
+      color: '#4caf50'
+    }
+  };
+
+  let cmpCurrentImg = null;
+  let cmpCurrentB64 = null;
+  let cmpBoxStart = null;
+  let cmpIsDrawing = false;
+  let cmpCurrentFile = null;
+
+  async function loadMedicalSamples() {
+    const r = await fetch('/medical_samples');
+    const d = await r.json();
+    const container = document.getElementById('medSampleBtns');
+    container.innerHTML = '';
+    d.samples.forEach(s => {
+      const btn = document.createElement('button');
+      btn.className = 'tab-btn';
+      btn.style.cssText = 'width:auto;font-size:12px;padding:6px 14px';
+      btn.innerHTML = `${s.icon} ${s.label}`;
+      btn.title = s.hint;
+      btn.onclick = () => {
+        document.querySelectorAll('#medSampleBtns .tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadCmpImage(`/medical_image/${s.filename}`, s.filename, s.box, s.hint);
+      };
+      container.appendChild(btn);
+    });
+  }
+
+  function loadCmpImage(src, filename, autoBox, hint) {
+    cmpCurrentFile = filename;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      cmpCurrentImg = img;
+      const wrapper = document.getElementById('cmpWrapper');
+      const origC = document.getElementById('cmpOrigCanvas');
+      const boxC  = document.getElementById('cmpBoxCanvas');
+      origC.width  = img.naturalWidth;
+      origC.height = img.naturalHeight;
+      boxC.width   = img.naturalWidth;
+      boxC.height  = img.naturalHeight;
+      origC.getContext('2d').drawImage(img, 0, 0);
+      document.getElementById('cmpPlaceholder').style.display = 'none';
+      document.getElementById('cmpHint').textContent = hint || '드래그하여 ROI를 선택하세요';
+
+      // store b64
+      const tmp = document.createElement('canvas');
+      tmp.width = img.naturalWidth; tmp.height = img.naturalHeight;
+      tmp.getContext('2d').drawImage(img, 0, 0);
+      cmpCurrentB64 = tmp.toDataURL('image/png').split(',')[1];
+
+      // paper info
+      updatePaperInfo(filename);
+
+      // reset result
+      document.getElementById('cmpResultImg').style.display = 'none';
+      document.getElementById('cmpResultPlaceholder').style.display = 'flex';
+      document.getElementById('cmpMetrics').style.display = 'none';
+
+      // auto-suggest box
+      if (autoBox) {
+        const [x1, y1, x2, y2] = autoBox;
+        const bctx = boxC.getContext('2d');
+        bctx.clearRect(0, 0, boxC.width, boxC.height);
+        bctx.strokeStyle = '#ffeb3b'; bctx.lineWidth = 3; bctx.setLineDash([8, 4]);
+        bctx.strokeRect(x1, y1, x2-x1, y2-y1);
+        bctx.fillStyle = 'rgba(255,235,59,0.08)';
+        bctx.fillRect(x1, y1, x2-x1, y2-y1);
+        cmpBoxStart = {x:x1, y:y1};
+        document.getElementById('cmpHint').textContent = '박스가 자동 표시됨 — 드래그로 조정하거나 세그멘테이션 탭에서 실행하세요';
+      }
+    };
+    img.src = src;
+  }
+
+  function updatePaperInfo(filename) {
+    const info = PAPER_INFO[filename];
+    if (!info) return;
+    document.getElementById('cmpPaperContent').innerHTML = `
+      <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:10px">${info.title}</div>
+      <div style="background:#1a1f2e;border-left:3px solid #f44336;border-radius:6px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:#f44336;margin-bottom:4px">MedSAM(현재) 한계</div>
+        <div style="font-size:12px;color:#ccd;line-height:1.7">${info.limit}</div>
+      </div>
+      <div style="background:#1a1f2e;border-left:3px solid ${info.color};border-radius:6px;padding:10px 12px;margin-bottom:10px">
+        <div style="font-size:10px;font-weight:700;color:${info.color};margin-bottom:4px">Med-SA 논문 개선</div>
+        <div style="font-size:12px;color:#ccd;line-height:1.7">${info.medsa}</div>
+      </div>
+      <div style="background:#1e2538;border-radius:6px;padding:8px 12px;font-size:11px;color:#7b8cba">${info.note}</div>
+    `;
+  }
+
+  function cmpCanvasPos(e) {
+    const c = document.getElementById('cmpOrigCanvas');
+    const rect = c.getBoundingClientRect();
+    return {
+      x: Math.round((e.clientX - rect.left) * (c.width / rect.width)),
+      y: Math.round((e.clientY - rect.top)  * (c.height / rect.height))
+    };
+  }
+  function cmpStartBox(e) {
+    if (!cmpCurrentImg) return;
+    cmpIsDrawing = true;
+    cmpBoxStart = cmpCanvasPos(e);
+    document.getElementById('cmpBoxCanvas').getContext('2d').clearRect(0, 0, 9999, 9999);
+  }
+  function cmpDrawBox(e) {
+    if (!cmpIsDrawing) return;
+    const p = cmpCanvasPos(e);
+    const c = document.getElementById('cmpBoxCanvas');
+    const ctx = c.getContext('2d');
+    ctx.clearRect(0, 0, c.width, c.height);
+    const x = Math.min(cmpBoxStart.x, p.x), y = Math.min(cmpBoxStart.y, p.y);
+    const w = Math.abs(p.x - cmpBoxStart.x), h = Math.abs(p.y - cmpBoxStart.y);
+    ctx.strokeStyle = '#ffeb3b'; ctx.lineWidth = 2; ctx.setLineDash([6, 3]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.fillStyle = 'rgba(255,235,59,0.08)';
+    ctx.fillRect(x, y, w, h);
+  }
+  function cmpEndBox(e) {
+    if (!cmpIsDrawing) return;
+    cmpIsDrawing = false;
+    const p = cmpCanvasPos(e);
+    const dx = Math.abs(p.x - cmpBoxStart.x), dy = Math.abs(p.y - cmpBoxStart.y);
+    if (dx < 10 || dy < 10) return;
+    const box = [
+      Math.min(cmpBoxStart.x, p.x), Math.min(cmpBoxStart.y, p.y),
+      Math.max(cmpBoxStart.x, p.x), Math.max(cmpBoxStart.y, p.y)
+    ];
+    runCmpSegment(box);
+  }
+
+  async function runCmpSegment(box) {
+    if (!modelLoaded) { showToast('먼저 세그멘테이션 탭에서 모델을 로드하세요!', true); return; }
+    document.getElementById('cmpRunning').style.display = 'flex';
+    document.getElementById('cmpResultPlaceholder').style.display = 'none';
+    try {
+      const r = await fetch('/segment', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({image: cmpCurrentB64, box})
+      });
+      const d = await r.json();
+      document.getElementById('cmpRunning').style.display = 'none';
+      if (d.error) { showToast('오류: ' + d.error, true); return; }
+      const img = document.getElementById('cmpResultImg');
+      img.src = 'data:image/png;base64,' + d.overlay;
+      img.style.display = 'block';
+      document.getElementById('cmpMetrics').style.display = 'block';
+      document.getElementById('cmpScore').textContent = (d.score * 100).toFixed(1) + '%';
+      document.getElementById('cmpArea').textContent = d.area_px.toLocaleString();
+      document.getElementById('cmpPct').textContent = d.area_pct + '%';
+      showToast('세그멘테이션 완료!', false);
+    } catch(err) {
+      document.getElementById('cmpRunning').style.display = 'none';
+      showToast('오류: ' + err.message, true);
+    }
+  }
+
+  // ── Tab switching ──
+  function switchTab(tab) {
+    const demo = document.getElementById('demoPanel');
+    const paper = document.getElementById('paperPanel');
+    const btns = document.querySelectorAll('.tab-btn');
+    if (tab === 'demo') {
+      demo.style.display = 'flex';
+      paper.classList.remove('active');
+      btns[0].classList.add('active');
+      btns[1].classList.remove('active');
+    } else {
+      demo.style.display = 'none';
+      paper.classList.add('active');
+      btns[0].classList.remove('active');
+      btns[1].classList.add('active');
+    }
+  }
+
+  // ── Init ──
+  checkStatus();
+  loadSamples();
+  loadMedicalSamples();
+</script>
+</body>
+</html>

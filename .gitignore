@@ -1,0 +1,22 @@
+venv/
+checkpoints/
+uploads/
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+*.egg-info/
+.env
+*.log
+
+# MedSAM 내부 생성 파일
+MedSAM/work_dir/
+MedSAM/assets/samples/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
