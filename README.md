@@ -41,8 +41,7 @@ source venv/Scripts/activate
 # Mac/Linux
 source venv/bin/activate
 
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-pip install flask opencv-python matplotlib pillow
+pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cpu
 pip install -e MedSAM/
 ```
 
