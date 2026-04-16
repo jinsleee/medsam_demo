@@ -17,16 +17,7 @@
 
 ---
 
-## 기술 스택
-
-- **백엔드**: Python 3.10 / Flask
-- **모델**: SAM ViT-B + [MedSAM](https://github.com/bowang-lab/MedSAM) ViT-B
-- **참고 논문**: [Medical SAM Adapter (Med-SA)](https://doi.org/10.1016/j.media.2025.103547) — Medical Image Analysis 2025
-- **프론트엔드**: Vanilla JS / HTML Canvas
-
----
-
-## 설치 및 실행
+## 빠른 시작
 
 ### 1. 저장소 클론
 
@@ -42,45 +33,56 @@ python -m venv venv
 
 # Windows
 venv\Scripts\activate
+
 # Mac/Linux
 source venv/bin/activate
 
 pip install -r requirements.txt
-```
-
-### 3. MedSAM 소스 클론
-
-```bash
-git clone https://github.com/bowang-lab/MedSAM.git
 pip install -e MedSAM/
 ```
 
-### 4. 모델 가중치 다운로드
+### 3. 모델 가중치 다운로드 (필수)
 
-`checkpoints/` 폴더에 두 파일 모두 필요합니다.
+모델 파일은 용량이 커서 git에 포함되지 않습니다. 아래 두 파일을 직접 다운로드해서 `checkpoints/` 폴더에 넣으세요.
 
 ```bash
 mkdir checkpoints
-
-# SAM ViT-B (원본)
-curl -L "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" \
-     -o checkpoints/sam_vit_b.pth
-
-# MedSAM ViT-B (의료 파인튜닝)
-# https://drive.google.com/file/d/1UAmWL88roYR7wKlnApw5Bcuzf2iQgk6_ 에서 다운로드
-# → checkpoints/medsam_vit_b.pth 로 저장
 ```
 
-### 5. 이미지 준비
-
-`image/` 폴더에 PNG/JPG 파일을 넣으면 사이드바에 자동으로 표시됩니다.
+#### SAM ViT-B (`checkpoints/sam_vit_b.pth`) — 375MB
 
 ```bash
-mkdir image
-# 흉부 X-ray, CT 등 의료 이미지를 image/ 폴더에 복사
+# curl 사용 (Mac/Linux/Windows Git Bash)
+curl -L "https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth" \
+     -o checkpoints/sam_vit_b.pth
 ```
 
-### 6. 서버 실행
+또는 브라우저에서 직접 다운로드:
+👉 https://dl.fbaipublicfiles.com/segment_anything/sam_vit_b_01ec64.pth
+→ 다운받은 파일 이름을 `sam_vit_b.pth` 로 바꾸고 `checkpoints/` 폴더에 이동
+
+---
+
+#### MedSAM ViT-B (`checkpoints/medsam_vit_b.pth`) — 358MB
+
+브라우저에서 직접 다운로드:
+👉 https://drive.google.com/file/d/1UAmWL88roYR7wKlnApw5Bcuzf2iQgk6_
+
+1. 위 링크 접속 → **다운로드** 클릭
+2. 다운받은 파일 이름을 `medsam_vit_b.pth` 로 변경
+3. `checkpoints/` 폴더 안에 이동
+
+---
+
+다운로드 완료 후 폴더 구조:
+
+```
+checkpoints/
+├── sam_vit_b.pth       ← SAM 원본 가중치
+└── medsam_vit_b.pth    ← MedSAM 가중치
+```
+
+### 4. 서버 실행
 
 ```bash
 python app.py
@@ -93,8 +95,8 @@ python app.py
 ## 사용 방법
 
 1. `http://localhost:5020` 열기
-2. **모델 로드** 버튼 클릭 (페이지 열면 자동 시도, CPU 기준 30초~1분)
-3. 왼쪽 사이드바에서 이미지 클릭
+2. **모델 로드** 버튼 클릭 (페이지 열면 자동 시도, CPU 기준 30초~1분 소요)
+3. 왼쪽 사이드바에서 이미지 클릭 (`image/` 폴더에 흉부 X-ray 샘플 5장 포함)
 4. 입력 패널 위에서 마우스 드래그 → ROI 박스 지정
 5. SAM / MedSAM 결과 및 Dice 비교 지표 확인
 
@@ -109,11 +111,11 @@ medsam_demo/
 ├── app.py                  # Flask 백엔드 (SAM + MedSAM 추론, 비교 지표)
 ├── templates/
 │   └── index.html          # 프론트엔드 UI (3분할 비교 레이아웃)
-├── checkpoints/            # 모델 가중치 (git 제외)
+├── MedSAM/                 # bowang-lab MedSAM 소스 코드
+├── image/                  # 샘플 흉부 X-ray 이미지 5장
+├── checkpoints/            # 모델 가중치 ← 직접 다운로드 필요 (git 제외)
 │   ├── sam_vit_b.pth
 │   └── medsam_vit_b.pth
-├── MedSAM/                 # bowang-lab MedSAM 소스 (git 제외)
-├── image/                  # 입력 이미지 폴더 (git 제외)
 ├── requirements.txt
 └── .gitignore
 ```
