@@ -17,6 +17,9 @@ MedSAM/assets/samples/
 .vscode/
 .idea/
 
+# 이미지 데이터
+image/
+
 # OS
 .DS_Store
 Thumbs.db
